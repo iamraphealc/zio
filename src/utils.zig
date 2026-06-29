@@ -1,0 +1,43 @@
+pub const ColorV1 = enum {
+    reset,
+    red,
+    red_bright,
+    green,
+    green_bright,
+    yellow,
+    yellow_bright,
+    cyan,
+    white,
+    blue,
+    blue_bright,
+    bold,
+    magenta,
+    black,
+    red_bg,
+    gray,
+    magenta_bright,
+    white_bright,
+
+    pub fn ansiCode(self: ColorV1) []const u8 {
+        return switch (self) {
+            .reset => "\x1b[0m",
+            .black => "\x1b[30m",
+            .red => "\x1b[31m",
+            .red_bright => "\x1b[91m",
+            .green => "\x1b[32m",
+            .green_bright => "\x1b[92m",
+            .yellow => "\x1b[33m",
+            .yellow_bright => "\x1b[93m",
+            .blue => "\x1b[34m",
+            .blue_bright => "\x1b[94m",
+            .magenta => "\x1b[35m",
+            .magenta_bright => "\x1b[95m",
+            .cyan => "\x1b[36m",
+            .white => "\x1b[37m",
+            .bold => "\x1b[1m",
+            .red_bg => "\x1b[41;97m",
+            .gray => "\x1b[90m",
+            .white_bright => "\x1b[97m",
+        };
+    }
+};

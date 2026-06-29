@@ -7,3 +7,4 @@ bar.bash
 *.rar
 *.js
 *.ts
+zig-pkg/

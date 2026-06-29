@@ -22,7 +22,7 @@ function Get-PlatformInfo {
     }
     
     return @{
-        OS = "windows"
+        OS = "windows" 
         Arch = $arch
     }
 }

@@ -1,8 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Thread = std.Thread;
-const Mutex = Thread.Mutex;
-const Condition = Thread.Condition;
+const Mutex = std.Io.Mutex;
+const Condition = std.Io.Condition;
 
 /// Generic typed channel supporting buffered and unbuffered modes
 pub fn Channel(comptime T: type) type {
@@ -19,11 +19,12 @@ pub fn Channel(comptime T: type) type {
         send_cond: Condition,
         recv_cond: Condition,
         closed: bool,
+        io: std.Io,
 
         /// Initialize a new channel with the specified capacity
         /// capacity = 0 creates an unbuffered (synchronous) channel
         /// capacity > 0 creates a buffered channel
-        pub fn init(allocator: Allocator, capacity: usize) !*Self {
+        pub fn init(allocator: Allocator, capacity: usize, io: std.Io) !*Self {
             const channel = try allocator.create(Self);
             errdefer allocator.destroy(channel);
 
@@ -36,10 +37,19 @@ pub fn Channel(comptime T: type) type {
                 .tail = 0,
                 .count = 0,
                 .capacity = capacity,
-                .mutex = Mutex{},
-                .send_cond = Condition{},
-                .recv_cond = Condition{},
+                .mutex = Mutex{
+                    .state = .init(.unlocked),
+                },
+                .send_cond = Condition{
+                    .state = .init(.{ .waiters = 0, .signals = 0 }),
+                    .epoch = .init(0),
+                },
+                .recv_cond = Condition{
+                    .state = .init(.{ .waiters = 0, .signals = 0 }),
+                    .epoch = .init(0),
+                },
                 .closed = false,
+                .io = io,
             };
             return channel;
         }
@@ -59,8 +69,8 @@ pub fn Channel(comptime T: type) type {
         /// Send a value to the channel
         /// Blocks if channel is full (buffered) or no receiver ready (unbuffered)
         pub fn send(self: *Self, value: T) !void {
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            self.mutex.lock(self.io) catch unreachable;
+            defer self.mutex.unlock(self.io);
 
             // Check if channel is closed
             if (self.closed) {
@@ -72,13 +82,13 @@ pub fn Channel(comptime T: type) type {
                 // In a real implementation, we'd need to handle direct transfer
                 // For now, we'll use a simplified approach
                 while (self.count > 0) {
-                    self.send_cond.wait(&self.mutex);
+                    try self.send_cond.wait(self.io, &self.mutex);
                     if (self.closed) return error.ChannelClosed;
                 }
             } else {
                 // For buffered channels, wait if buffer is full
                 while (self.count >= self.capacity) {
-                    self.send_cond.wait(&self.mutex);
+                    try self.send_cond.wait(self.io, &self.mutex);
                     if (self.closed) return error.ChannelClosed;
                 }
             }
@@ -95,21 +105,21 @@ pub fn Channel(comptime T: type) type {
             }
 
             // Signal waiting receivers
-            self.recv_cond.signal();
+            self.recv_cond.signal(self.io);
         }
 
         /// Receive a value from the channel
         /// Blocks until a value is available or channel is closed
         pub fn recv(self: *Self) !T {
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            self.mutex.lock(self.io) catch unreachable;
+            defer self.mutex.unlock(self.io);
 
             // Wait for data
             while (self.count == 0) {
                 if (self.closed) {
                     return error.ChannelClosed;
                 }
-                self.recv_cond.wait(&self.mutex);
+                self.recv_cond.wait(self.io, &self.mutex);
             }
 
             // Get the value
@@ -127,15 +137,15 @@ pub fn Channel(comptime T: type) type {
             };
 
             // Signal waiting senders
-            self.send_cond.signal();
+            self.send_cond.signal(self.io);
 
             return value;
         }
 
         /// Non-blocking receive
         pub fn tryRecv(self: *Self) !?T {
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            self.mutex.lock(self.io) catch unreachable;
+            defer self.mutex.unlock(self.io);
 
             if (self.closed) {
                 return error.ChannelClosed;
@@ -150,15 +160,15 @@ pub fn Channel(comptime T: type) type {
             self.count -= 1;
 
             // Signal waiting senders
-            self.send_cond.signal();
+            self.send_cond.signal(self.io);
 
             return value;
         }
 
         /// Non-blocking send
         pub fn trySend(self: *Self, value: T) !bool {
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            self.mutex.lock(self.io) catch unreachable;
+            defer self.mutex.unlock(self.io);
 
             if (self.closed) {
                 return error.ChannelClosed;
@@ -173,7 +183,7 @@ pub fn Channel(comptime T: type) type {
             self.count += 1;
 
             // Signal waiting receivers
-            self.recv_cond.signal();
+            self.recv_cond.signal(self.io);
 
             return true;
         }
@@ -181,28 +191,28 @@ pub fn Channel(comptime T: type) type {
         /// Close the channel
         /// No more sends allowed, but receivers can still drain
         pub fn close(self: *Self) void {
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            self.mutex.lock(self.io) catch unreachable;
+            defer self.mutex.unlock(self.io);
 
             if (!self.closed) {
                 self.closed = true;
                 // Wake up all waiting threads
-                self.send_cond.broadcast();
-                self.recv_cond.broadcast();
+                self.send_cond.broadcast(self.io);
+                self.recv_cond.broadcast(self.io);
             }
         }
 
         /// Get the number of items currently in the channel
         pub fn len(self: *Self) usize {
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            self.mutex.lock(self.io) catch unreachable;
+            defer self.mutex.unlock(self.io);
             return self.count;
         }
 
         /// Check if channel is closed
         pub fn isClosed(self: *Self) bool {
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            self.mutex.lock(self.io) catch unreachable;
+            defer self.mutex.unlock(self.io);
             return self.closed;
         }
     };

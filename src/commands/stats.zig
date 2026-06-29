@@ -5,6 +5,7 @@ const CLIUtils = ziglet.CLIUtils;
 const CommandContext = ziglet.CommandContext;
 const terminal = ziglet.utils.terminal;
 const Color = terminal.Color;
+const ColorV1 = @import("../utils.zig").ColorV1;
 const print = terminal.print;
 const printColored = terminal.printColored;
 
@@ -32,7 +33,7 @@ pub fn shouldIgnore(path: []const u8, patterns: [][]u8) bool {
 }
 
 fn buildIgnoreList(allocator: std.mem.Allocator, args: [][]u8) [][]u8 {
-    const default_ignore_lists = [_][]const u8{ "node_modules", "*.jpg", "*.png", "*.mp4", "*.svg", "*.ttf", ".git", ".zig-cache", "*.zir", "*.dia", "zig-out", "*.o", "*.obj", "*.so", "*.tgz", "*.tar", "*.zip", ".next", ".expo", "bin", "*.exe", "package-lock.json", "pnpm-lock.yaml", "*.tsbuildinfo", "*.lock", ".vscode" };
+    const default_ignore_lists = [_][]const u8{ "node_modules", "*.jpg", "*.png", "*.mp4", "*.svg", "*.ttf", ".git", ".zig-cache", "zig-pkg", "*.zir", "*.dia", "zig-out", "*.o", "*.obj", "*.so", "*.tgz", "*.tar", "*.zip", ".next", ".expo", "bin", "*.exe", "package-lock.json", "pnpm-lock.yaml", "*.tsbuildinfo", "*.lock", ".vscode", "*-cache", "*.cache" };
 
     var ignore_list: std.ArrayList([]u8) = .empty;
 
@@ -57,15 +58,16 @@ pub fn statsCommand(ctx: CommandContext) !void {
     const allocator = ctx.allocator;
     const args = buildIgnoreList(allocator, ctx.args);
     defer allocator.free(args);
+    const io = ctx.init.io;
 
-    var dir: std.fs.Dir = undefined;
+    var dir: std.Io.Dir = undefined;
 
     if (builtin.os.tag == .linux or builtin.os.tag == .macos) {
-        dir = try std.fs.cwd().openDir(".", .{ .iterate = true });
+        dir = try std.Io.Dir.cwd().openDir(io, ".", .{ .iterate = true });
     } else {
-        dir = try std.fs.cwd().openDir("", .{ .iterate = true });
+        dir = try std.Io.Dir.cwd().openDir(io, "", .{ .iterate = true });
     }
-    defer dir.close();
+    defer dir.close(io);
 
     var files: std.ArrayList([]const u8) = .empty;
     defer {
@@ -75,48 +77,64 @@ pub fn statsCommand(ctx: CommandContext) !void {
         files.deinit(allocator);
     }
 
-    var timer = std.time.Timer.start() catch return;
+    var timer = std.Io.Timestamp.now(io, .awake);
 
-    var scan_timer = std.time.Timer.start() catch return;
+    var scan_timer = std.Io.Timestamp.now(io, .awake);
 
-    try walkFiles(allocator, &dir, "", &files, args);
+    try walkFiles(allocator, &dir, "", &files, args, io);
 
-    const scan_time = scan_timer.lap();
+    const scan_time = scan_timer.untilNow(io, .awake);
 
     var file_stats: std.ArrayList(FileStats) = .empty;
     defer file_stats.deinit(allocator);
 
     const CHUNK_SIZE: usize = 10000;
 
-    var compute_timer = std.time.Timer.start() catch return;
+    var compute_timer = std.Io.Timestamp.now(io, .awake);
 
     for (files.items) |path| {
-        var file = std.fs.cwd().openFile(path, .{}) catch continue;
-        defer file.close();
+        var file = std.Io.Dir.cwd().openFile(io, path, .{}) catch continue;
+        defer file.close(io);
 
-        const file_size = try file.getEndPos();
+        const file_size = try file.length(io);
 
         var buffer: [CHUNK_SIZE]u8 = undefined;
 
         var line_count: usize = 0;
 
-        while (file.read(buffer[0..])) |bytes_read| {
-            // file.read returns the number of bytes read (0 if EOF)
-            if (bytes_read == 0) break;
+        // 2. Initialize the Streaming Reader with the required 'io' context and buffer
+        var streaming_reader = file.readerStreaming(io, &buffer);
+        const reader = &streaming_reader.interface;
 
-            // CRITICAL: Count newlines only on the portion of the buffer that was read
-            line_count += std.mem.count(u8, buffer[0..bytes_read], "\n");
-        } else |err| {
-            // Handle I/O errors other than EOF
-            if (err != error.EndOfStream) return err;
+        // 3. Proper chunk-reading loop in 0.16.0
+        while (true) {
+            // Use 'take' or 'read' equivalents depending on whether you want a full slice
+            // readSliceAll populates the array or throws EndOfStream if it can't fill it entirely.
+            // Instead, we use 'take' to read up to CHUNK_SIZE bytes smoothly.
+            const bytes_read = reader.take(CHUNK_SIZE) catch |err| switch (err) {
+                error.EndOfStream => {
+                    // Handle the final remainder trailing in the internal buffer if any
+                    const buffered = reader.buffered();
+                    if (buffered.len > 0) {
+                        line_count += std.mem.count(u8, buffered, "\n");
+                    }
+                    break;
+                },
+                else => return err,
+            };
+
+            if (bytes_read.len == 0) break;
+
+            // Count newlines on exactly what was retrieved
+            line_count += std.mem.count(u8, bytes_read, "\n");
         }
 
+        // 4. Corrected last byte check using direct positional pread to avoid messing with stream states
         if (file_size > 0) {
-            // Seek to the end-1 to check the last byte
-            try file.seekTo(file_size - 1);
             var last_byte_storage: [1]u8 = undefined;
+            // pread reads from a specific absolute offset without modifying file seek pointers
+            const bytes_read = try file.readPositionalAll(io, last_byte_storage[0..], file_size - 1);
 
-            const bytes_read = try file.read(last_byte_storage[0..]);
             if (bytes_read == 1 and last_byte_storage[0] != '\n') {
                 line_count += 1;
             }
@@ -126,17 +144,17 @@ pub fn statsCommand(ctx: CommandContext) !void {
     }
 
     // Print header
-    printColored(.gray, "{s}", .{"File"});
-    for ("File".len..FILE_COL_WIDTH) |_| printColored(.gray, " ", .{});
-    printColored(.gray, " | ", .{});
-    printColored(.gray, "{s}", .{"Line"});
-    for ("Line".len..SIZE_COL_WIDTH) |_| printColored(.gray, " ", .{});
-    printColored(.gray, " | ", .{});
-    printColored(.gray, "{s}\n", .{"Size"});
+    printColored(io, &.{.gray}, "{s}", .{"File"});
+    for ("File".len..FILE_COL_WIDTH) |_| printColored(io, &.{.gray}, " ", .{});
+    printColored(io, &.{.gray}, " | ", .{});
+    printColored(io, &.{.gray}, "{s}", .{"Line"});
+    for ("Line".len..SIZE_COL_WIDTH) |_| printColored(io, &.{.gray}, " ", .{});
+    printColored(io, &.{.gray}, " | ", .{});
+    printColored(io, &.{.gray}, "{s}\n", .{"Size"});
 
     // Print separator
-    for (0..FILE_COL_WIDTH + 5 + LINES_COL_WIDTH + 5 + SIZE_COL_WIDTH) |_| printColored(.gray, "-", .{});
-    printColored(.gray, "\n", .{});
+    for (0..FILE_COL_WIDTH + 5 + LINES_COL_WIDTH + 5 + SIZE_COL_WIDTH) |_| printColored(io, &.{.gray}, "-", .{});
+    printColored(io, &.{.gray}, "\n", .{});
 
     // Print each row
     var total_lines: usize = 0;
@@ -156,33 +174,33 @@ pub fn statsCommand(ctx: CommandContext) !void {
         }
 
         // File column
-        printColored(.cyan, "{s}", .{file_display});
-        for (file_display.len..FILE_COL_WIDTH) |_| printColored(.cyan, " ", .{});
+        printColored(io, &.{.cyan}, "{s}", .{file_display});
+        for (file_display.len..FILE_COL_WIDTH) |_| printColored(io, &.{.cyan}, " ", .{});
 
-        printColored(.green, " | ", .{});
+        printColored(io, &.{.green}, " | ", .{});
 
         const formatted_line_str = try formatNumber(allocator, fs.lines);
         defer allocator.free(formatted_line_str);
 
         // Right-align lines
-        for (formatted_line_str.len..SIZE_COL_WIDTH) |_| printColored(.green, " ", .{});
-        printColored(.green, "{s}", .{formatted_line_str});
+        for (formatted_line_str.len..SIZE_COL_WIDTH) |_| printColored(io, &.{.green}, " ", .{});
+        printColored(io, &.{.green}, "{s}", .{formatted_line_str});
 
         const size_str = try ziglet.utils.format.formatBytes(allocator, @intCast(fs.size));
         defer allocator.free(size_str);
 
         // Size column
-        printColored(.green, " | ", .{});
-        for (size_str.len..SIZE_COL_WIDTH) |_| printColored(.green, " ", .{});
-        printColored(.green, "{s}\n", .{size_str});
+        printColored(io, &.{.green}, " | ", .{});
+        for (size_str.len..SIZE_COL_WIDTH) |_| printColored(io, &.{.green}, " ", .{});
+        printColored(io, &.{.green}, "{s}\n", .{size_str});
 
         total_lines += fs.lines;
         total_size += fs.size;
     }
 
     // Print footer
-    for (0..FILE_COL_WIDTH + 5 + LINES_COL_WIDTH + 5 + SIZE_COL_WIDTH) |_| printColored(.gray, "-", .{});
-    printColored(.gray, "\n", .{});
+    for (0..FILE_COL_WIDTH + 5 + LINES_COL_WIDTH + 5 + SIZE_COL_WIDTH) |_| printColored(io, &.{.gray}, "-", .{});
+    printColored(io, &.{.gray}, "\n", .{});
 
     const total_lines_str = try formatNumber(allocator, total_lines);
     defer allocator.free(total_lines_str);
@@ -193,35 +211,36 @@ pub fn statsCommand(ctx: CommandContext) !void {
     const total_size_str = try ziglet.utils.format.formatBytes(allocator, @intCast(total_size));
     defer allocator.free(total_size_str);
 
-    print("{s}Total files:{s} {s}\n", .{ Color.ansiCode(.gray), Color.ansiCode(.reset), total_files_str });
-    print("{s}Total lines:{s} {s}\n", .{ Color.ansiCode(.gray), Color.ansiCode(.reset), total_lines_str });
-    print("{s}Total Size:{s} {s}\n", .{ Color.ansiCode(.gray), Color.ansiCode(.reset), total_size_str });
+    print(io, "{s}Total files:{s} {s}\n", .{ ColorV1.ansiCode(.gray), ColorV1.ansiCode(.reset), total_files_str });
+    print(io, "{s}Total lines:{s} {s}\n", .{ ColorV1.ansiCode(.gray), ColorV1.ansiCode(.reset), total_lines_str });
+    print(io, "{s}Total Size:{s} {s}\n", .{ ColorV1.ansiCode(.gray), ColorV1.ansiCode(.reset), total_size_str });
 
-    for (0..FILE_COL_WIDTH + 5 + LINES_COL_WIDTH + 5 + SIZE_COL_WIDTH) |_| printColored(.gray, "-", .{});
+    for (0..FILE_COL_WIDTH + 5 + LINES_COL_WIDTH + 5 + SIZE_COL_WIDTH) |_| printColored(io, &.{.gray}, "-", .{});
 
-    printLanguageStats(allocator, &file_stats);
+    printLanguageStats(allocator, &file_stats, io);
 
-    print("\n", .{});
+    print(io, "\n", .{});
 
-    const dir_scan_time = ziglet.utils.format.convertNanosecondsToTime(scan_time);
-    const compute_time = ziglet.utils.format.convertNanosecondsToTime(compute_timer.lap());
-    const total_time = ziglet.utils.format.convertNanosecondsToTime(timer.lap());
+    const dir_scan_time = ziglet.utils.format.convertNanosecondsToTime(@intCast(scan_time.toNanoseconds()));
+    const compute_time = ziglet.utils.format.convertNanosecondsToTime(@intCast(compute_timer.untilNow(io, .awake).toNanoseconds()));
+    const total_time = ziglet.utils.format.convertNanosecondsToTime(@intCast(timer.untilNow(io, .awake).toNanoseconds()));
 
-    printColored(.gray, "\nDirectory scan completed in {d:.2}ms.\n", .{dir_scan_time.milliseconds});
-    printColored(.gray, "Computation completed in {d:.2}ms.\n", .{compute_time.milliseconds});
-    printColored(.gray, "Total time: {d:.2}ms.\n", .{total_time.milliseconds});
+    printColored(io, &.{.gray}, "\nDirectory scan completed in {d:.2}ms.\n", .{dir_scan_time.milliseconds});
+    printColored(io, &.{.gray}, "Computation completed in {d:.2}ms.\n", .{compute_time.milliseconds});
+    printColored(io, &.{.gray}, "Total time: {d:.2}ms.\n", .{total_time.milliseconds});
 }
 
 pub fn walkFiles(
     allocator: std.mem.Allocator,
-    dir: *std.fs.Dir,
+    dir: *std.Io.Dir,
     base_path: []const u8,
     files: *std.ArrayList([]const u8),
     ignore_paths: [][]u8,
+    io: std.Io,
 ) !void {
     var it = dir.iterate();
 
-    while (try it.next()) |entry| {
+    while (try it.next(io)) |entry| {
         const name = entry.name;
 
         const full_path = try std.fs.path.join(allocator, &.{ base_path, name });
@@ -238,14 +257,14 @@ pub fn walkFiles(
                 // Caller frees later
             },
             .directory => {
-                var sub_dir = dir.openDir(name, .{ .iterate = true }) catch {
+                var sub_dir = dir.openDir(io, name, .{ .iterate = true }) catch {
                     allocator.free(full_path);
                     continue;
                 };
-                defer sub_dir.close();
+                defer sub_dir.close(io);
 
                 // Recurse
-                walkFiles(allocator, &sub_dir, full_path, files, ignore_paths) catch {
+                walkFiles(allocator, &sub_dir, full_path, files, ignore_paths, io) catch {
                     allocator.free(full_path);
                     return;
                 };
@@ -314,8 +333,9 @@ const language_map = std.StaticStringMap(Lang).initComptime(.{
     .{ ".hpp", Lang{ .name = "C++ Header", .color = "\x1b[38;2;243;75;125m" } }, // #F34B7D
     .{ ".md", Lang{ .name = "Markdown", .color = "\x1b[38;2;8;63;161m" } }, // #083FA1
     .{ ".json", Lang{ .name = "JSON", .color = "\x1b[38;2;41;41;41m" } }, // #292929
-    .{ ".kairo", Lang{ .name = "Kairo", .color = "\x1b[38;2;240;220;162m" } }, // #F0DC82
-    .{ ".kbc", Lang{ .name = "Kairo Bytecode", .color = "\x1b[38;2;255;107;51m" } }, // #FF6B35
+    .{ ".qv", Lang{ .name = "Qorvak", .color = "\x1b[38;2;245;128;21m" } }, // #F58015
+    .{ ".qvc", Lang{ .name = "Qorvak Bytecode", .color = "\x1b[38;2;79;118;133m" } }, // #4F7685
+    .{ ".ush", Lang{ .name = "U-shell", .color = "\x1b[38;2;212;215;224m" } }, // #D4D7E0
     // Web languages
     .{ ".html", Lang{ .name = "HTML", .color = "\x1b[38;2;227;76;38m" } }, // #E34C26
     .{ ".htm", Lang{ .name = "HTML", .color = "\x1b[38;2;227;76;38m" } }, // #E34C26
@@ -369,7 +389,7 @@ const LangCount = struct {
     color: []const u8,
 };
 
-fn printLanguageStats(allocator: std.mem.Allocator, file_stats: *std.ArrayList(FileStats)) void {
+fn printLanguageStats(allocator: std.mem.Allocator, file_stats: *std.ArrayList(FileStats), io: std.Io) void {
     var lang_counts = std.StringHashMap(LangCount).init(allocator);
     defer lang_counts.deinit();
 
@@ -385,7 +405,7 @@ fn printLanguageStats(allocator: std.mem.Allocator, file_stats: *std.ArrayList(F
             if (lang_counts.getPtr("Others")) |lg| {
                 lg.count += 1;
             } else {
-                lang_counts.put("Others", .{ .color = Color.ansiCode(.gray), .count = 1 }) catch std.debug.panic("OOM", .{});
+                lang_counts.put("Others", .{ .color = ColorV1.ansiCode(.gray), .count = 1 }) catch std.debug.panic("OOM", .{});
             }
         }
     }
@@ -395,20 +415,20 @@ fn printLanguageStats(allocator: std.mem.Allocator, file_stats: *std.ArrayList(F
 
     const total_file_count = file_stats.items.len;
 
-    print("\n", .{});
+    print(io, "\n", .{});
 
-    printColored(.bold, "Languages\n\n", .{});
+    printColored(io, &.{.bold}, "Languages\n\n", .{});
 
     // print line block
     while (it.next()) |entry| {
-        print("{s}", .{entry.value_ptr.color});
+        print(io, "{s}", .{entry.value_ptr.color});
         for (0..(entry.value_ptr.count * 100) / total_file_count) |_| {
-            print("█", .{});
+            print(io, "█", .{});
         }
-        print("{s}", .{Color.ansiCode(.reset)});
+        print(io, "{s}", .{ColorV1.ansiCode(.reset)});
     }
 
-    print("\n", .{});
+    print(io, "\n", .{});
 
     it = lang_counts.iterator();
     // display language statistics
@@ -417,14 +437,14 @@ fn printLanguageStats(allocator: std.mem.Allocator, file_stats: *std.ArrayList(F
         const total_float: f64 = @floatFromInt(total_file_count);
         const percentage = (count_float * 100) / total_float;
 
-        print("{s}{s}{s} {s}{d:.2}%{s}   ", .{
+        print(io, "{s}{s}{s} {s}{d:.2}%{s}   ", .{
             entry.value_ptr.color,
             entry.key_ptr.*,
-            Color.ansiCode(.reset),
+            ColorV1.ansiCode(.reset),
             //
-            Color.ansiCode(.gray),
+            ColorV1.ansiCode(.gray),
             percentage,
-            Color.ansiCode(.reset),
+            ColorV1.ansiCode(.reset),
         });
     }
 }

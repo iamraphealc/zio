@@ -1,0 +1,45 @@
+exec("zig", "build");
+
+if EXIT_CODE != 0
+  echo "$COLOR_RED zig build failed with code $EXIT_CODE $COLOR_RESET"
+  exit EXIT_CODE
+end
+
+var executable_dir = "zig-out/$ARCH-$OS"
+
+if !exists(executable_dir)
+  echo "$COLOR_YELLOW zio have no build for $ARCH-$OS, go to 'build.zig' and add no target using `cpu_arch=$ARCH` `os_tag=$OS` $COLOR_RESET"
+  exit 1
+end
+
+var executable_extension = ""
+
+if OS == "windows"
+  executable_extension = ".exe"
+end
+
+var executable = "$executable_dir/zio$executable_extension"
+
+if !exists(executable)
+  echo "$COLOR_YELLOW executable not found in path $executable $COLOR_RESET"
+  exit 1
+end
+
+if !check_var("1")
+  echo "$COLOR_YELLOW usage: ushell exec run.ush <command> <args..> $COLOR_RESET"
+  exit 1
+end
+
+if !check_var("@")
+  echo "$COLOR_YELLOW usage: ushell exec run.ush <args..> $COLOR_RESET"
+  exit 1
+end
+
+var command = $1
+var args = $@
+
+exec("$executable", command, args)
+
+if EXIT_CODE != 0 
+  echo "$COLOR_RED $executable $command $args failed with code $EXIT_CODE $COLOR_RESET"
+end

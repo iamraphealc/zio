@@ -3,18 +3,15 @@ const ziglet = @import("ziglet");
 const CLIBuilder = ziglet.CLIBuilder;
 const commands = @import("commands/root.zig");
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
-    defer _ = gpa.deinit();
-
+pub fn main(init: std.process.Init) !void {
     ziglet.utils.terminal.setWinConsole();
 
-    const allocator = gpa.allocator();
+    const allocator = init.gpa;
+    const arena = init.arena.allocator();
 
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const args = try init.minimal.args.toSlice(arena);
 
-    var cli = CLIBuilder.init(allocator, "zio", "0.3.6", "A blazing-fast, cross-platform file system utility built in Zig — designed for efficiency, reliability, and simplicity.");
+    var cli = CLIBuilder.init(allocator, init, "zio", "0.4.0", "A blazing-fast, cross-platform file system utility built in Zig — designed for efficiency, reliability, and simplicity.");
     defer cli.deinit();
 
     cli.setGlobalOptions();

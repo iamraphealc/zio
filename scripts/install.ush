@@ -1,0 +1,113 @@
+# =========== Zio Cross-Platform Installation Script ===========
+# Supports: Windows, macOS, Linux
+
+echo "$COLOR_BLUE=== Zio Installation ===$COLOR_RESET"
+echo "$COLOR_CYAN ⛏️   Running zig build for $OS $ARCH ...$COLOR_RESET"
+
+exec("zig", "build")
+
+if $EXIT_CODE != 0
+    echo "$COLOR_RED❌ Build failed$COLOR_RESET"
+    exit 1
+end
+
+echo "$COLOR_GREEN ✅  Build completed for $OS $ARCH$COLOR_RESET"
+
+var executable_dir = "zig-out/$ARCH-$OS"
+
+if !exists(executable_dir)
+  echo "$COLOR_YELLOW zio have no build for $ARCH-$OS, go to 'build.zig' and add no target using `cpu_arch=$ARCH` `os_tag=$OS` $COLOR_RESET"
+  exit 1
+end
+
+var executable_extension = ""
+
+if OS == "windows"
+  executable_extension = ".exe"
+end
+
+var executable = "$executable_dir/zio$executable_extension"
+
+if !exists(executable)
+  echo "$COLOR_YELLOW executable not found in path $executable $COLOR_RESET"
+  exit 1
+end
+
+
+var targetPath
+var targetFile
+
+# Platform-specific paths
+if OS == "windows"
+   targetPath = "$HOME\\AppData\\Local\\Microsoft\\WindowsApps"
+   targetFile = "zio.exe"
+else
+   targetPath = "$HOME/.local/bin"
+   targetFile = "zio"
+end
+
+var file = "$targetPath/$targetFile"
+echo "$COLOR_BLUE ℹ️   Target: $file"
+
+
+if exists(file)
+    echo "$COLOR_YELLOW ⚠️   Found existing installation at: $file$COLOR_RESET"
+    
+    # Try to get version of existing installation
+    var old_version
+
+    stdout_behavior("pipe_current")
+    old_version = exec(file, "--version")
+
+    echo "$COLOR_MAGENTA 📦  Existing version: $old_version$COLOR_RESET"
+
+    if delete(file)
+        echo "$COLOR_GREEN ✅  Successfully deleted existing file$COLOR_RESET"
+    else
+        echo "$COLOR_RED ❌  Failed to delete existing file$COLOR_RESET"
+        exit 1
+    end
+else
+    echo "$COLOR_BLUE ℹ️   No existing installation found$COLOR_RESET"
+end
+
+echo "$COLOR_CYAN 🧊  Copying zio binary...$COLOR_RESET"
+
+# Copy source binary
+var source = executable
+
+if copy(source, targetPath, targetFile)
+    echo "$COLOR_GREEN ✅  Successfully copied to $targetPath$COLOR_RESET"
+else
+    echo "$COLOR_RED ❌  Failed to copy$COLOR_RESET"
+    exit 1
+end
+
+# Set permissions on Unix
+if OS != "windows"
+    exec("chmod", "+x", file)
+end
+
+var version
+stdout_behavior("pipe_current")
+version = exec(source, "--version")
+
+# =========== Installation Summary ===========
+echo ""
+echo "$COLOR_GREEN_BRIGHT════════════════════════════════════════$COLOR_RESET"
+echo "$COLOR_GREEN_BRIGHT✨ Zio Installation Complete! ✨$COLOR_RESET"
+echo "$COLOR_GREEN_BRIGHT════════════════════════════════════════$COLOR_RESET\n"
+echo "$COLOR_CYAN📦 Installed: $file$COLOR_RESET"
+echo "$COLOR_CYAN📌 Version: $version$COLOR_RESET"
+
+if OS == "windows"
+    echo ""
+    echo "$COLOR_YELLOW💡 To use Zio, restart your terminal$COLOR_RESET"
+else
+    echo ""
+    echo "$COLOR_YELLOW💡 To start using Zio, run:$COLOR_RESET"
+    echo "    ush --help"
+    echo ""
+    echo "$COLOR_YELLOW💡 Or run a script:$COLOR_RESET"
+    echo "    ush exec myscript.ush"
+end

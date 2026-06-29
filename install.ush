@@ -11,7 +11,7 @@ else
 end
 
 echo "--- ZIO Universal Installer (Linux/macOS/Windows) ---"
-
+ 
 echo "Detected OS: **$OS**"
 echo "Detected Architecture: **$ARCH**"
 
@@ -22,6 +22,7 @@ echo "Target Asset Name: **$asset_name**"
 # Fetch Latest Version
 echo "Fetching latest version from GitHub..."
 var latest_version_url = "https://api.github.com/repos/$owner/$repo/releases/latest"
+stdout_behavior("pipe_current")
 var latest_version = exec("curl", "-s", latest_version_url, "|", "grep", "tag_name", "|", "sed", "-E", "s/.*\"tag_name\": *\"([^\"}]+)\".*/\\1/")
 
 if latest_version == ""
@@ -68,6 +69,8 @@ if exists("$install_dir/$install_name")
     echo "✅ Executable installed: $install_dir/$install_name"
 
     var file_size
+
+    stdout_behavior("persist_pipe") # Allow all execs to pipe output
 
     if OS == "windows"
         file_size = exec("powershell", "-Command", "(Get-Item '$install_dir/$install_name').Length")

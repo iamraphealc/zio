@@ -5,6 +5,7 @@ const Thread = std.Thread;
 const std = @import("std");
 const terminal = ziglet.utils.terminal;
 const Color = terminal.Color;
+const ColorV1 = @import("../utils.zig").ColorV1;
 const printColored = terminal.printColored;
 const builtin = @import("builtin");
 
@@ -16,6 +17,7 @@ const InstallationInfo = struct {
 pub fn updateCommand(ctx: CommandContext) !void {
     const allocator = ctx.allocator;
     var checking = Atomic(bool).init(true);
+    const io = ctx.init.io;
 
     const installation_info = allocator.create(InstallationInfo) catch unreachable;
 
@@ -26,13 +28,13 @@ pub fn updateCommand(ctx: CommandContext) !void {
 
     var installing = Atomic(*InstallationInfo).init(installation_info);
 
-    const animation_thread = try Thread.spawn(.{}, animate, .{ &checking, &installing });
-    const check_thread = try Thread.spawn(.{}, checkUpdate, .{ &checking, allocator, &installing });
+    const animation_thread = try Thread.spawn(.{}, animate, .{ &checking, &installing, io });
+    const check_thread = try Thread.spawn(.{}, checkUpdate, .{ &checking, allocator, &installing, io });
 
     check_thread.join();
 
     if (installing.load(.acquire).installing) {
-        const install_thread = try Thread.spawn(.{}, install, .{ allocator, &installing });
+        const install_thread = try Thread.spawn(.{}, install, .{ allocator, &installing, io });
         install_thread.join();
     }
 
@@ -42,28 +44,28 @@ pub fn updateCommand(ctx: CommandContext) !void {
     defer allocator.destroy(installation_info);
 }
 
-fn animate(is_checking: *Atomic(bool), is_installing: *Atomic(*InstallationInfo)) void {
+fn animate(is_checking: *Atomic(bool), is_installing: *Atomic(*InstallationInfo), io: std.Io) void {
     const frames = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
     var frame_index: usize = 0;
 
     while (is_checking.load(.acquire) or is_installing.load(.acquire).installing) {
         std.debug.print("\r{s}{s} {s}{s}", .{
-            Color.ansiCode(.white),
+            ColorV1.ansiCode(.white),
             frames[frame_index % frames.len],
             if (is_installing.load(.acquire).installing) "Installing update..." else "Checking for updates...",
-            Color.ansiCode(.reset),
+            ColorV1.ansiCode(.reset),
         });
-        std.Thread.sleep(100 * std.time.ns_per_ms);
+        io.sleep(.fromMilliseconds(100 * std.time.ns_per_ms), .awake) catch unreachable;
         frame_index += 1;
     }
 }
 
-fn checkUpdate(is_checking: *Atomic(bool), allocator: std.mem.Allocator, is_installing: *Atomic(*InstallationInfo)) void {
-    var child_process = std.process.Child.init(&.{ "curl", "-sL", "https://raw.githubusercontent.com/Kingrashy12/zio/main/version" }, allocator);
-    child_process.stdout_behavior = .Pipe;
-
-    child_process.spawn() catch |err| {
-        printColored(.red, "Unable to spawn child process:{s}\n", .{@errorName(err)});
+fn checkUpdate(is_checking: *Atomic(bool), allocator: std.mem.Allocator, is_installing: *Atomic(*InstallationInfo), io: std.Io) void {
+    var child_process = std.process.spawn(io, .{
+        .argv = &.{ "curl", "-sL", "https://raw.githubusercontent.com/Kingrashy12/zio/main/version" },
+        .stdout = .pipe,
+    }) catch |err| {
+        printColored(io, &.{.red}, "Unable to spawn process: {s}\n", .{@errorName(err)});
         return;
     };
 
@@ -72,25 +74,25 @@ fn checkUpdate(is_checking: *Atomic(bool), allocator: std.mem.Allocator, is_inst
     var first_byte_read: usize = 0;
 
     if (child_process.stdout) |out| {
-        const len = out.readAll(&buffer) catch |err| {
-            printColored(.red, "Unable to read child process output:{s}\n", .{@errorName(err)});
+        var streaming_reader = out.readerStreaming(io, &buffer);
+        const reader = &streaming_reader.interface;
+
+        const bytes = reader.take(50) catch |err| {
+            printColored(io, &.{.red}, "Unable to read child process output:{s}\n", .{@errorName(err)});
             return;
         };
-        first_byte_read = len;
+        first_byte_read = bytes.len;
     }
 
-    _ = child_process.wait() catch {
-        printColored(.red, "Unable to wait for child process\n", .{});
+    _ = child_process.wait(io) catch {
+        printColored(io, &.{.red}, "Unable to wait for child process\n", .{});
         return;
     };
 
     const version = std.mem.trim(u8, buffer[0..first_byte_read], &std.ascii.whitespace);
 
-    var child = std.process.Child.init(&.{ "zio", "-V" }, allocator);
-    child.stdout_behavior = .Pipe;
-
-    child.spawn() catch |err| {
-        printColored(.red, "Unable to spawn child process:{s}\n", .{@errorName(err)});
+    var child = std.process.spawn(io, .{ .argv = &.{ "zio", "-V" }, .stdout = .pipe }) catch |err| {
+        printColored(io, &.{.red}, "Unable to spawn child process: {s}\n", .{@errorName(err)});
         return;
     };
 
@@ -99,15 +101,18 @@ fn checkUpdate(is_checking: *Atomic(bool), allocator: std.mem.Allocator, is_inst
     var byte_read: usize = 0;
 
     if (child.stdout) |out| {
-        const len = out.readAll(&current_buffer) catch |err| {
-            printColored(.red, "Unable to read child process output:{s}\n", .{@errorName(err)});
+        var streaming_reader = out.readerStreaming(io, &buffer);
+        const reader = &streaming_reader.interface;
+
+        const bytes = reader.take(50) catch |err| {
+            printColored(io, &.{.red}, "Unable to read child process output:{s}\n", .{@errorName(err)});
             return;
         };
-        byte_read = len;
+        byte_read = bytes.len;
     }
 
-    _ = child.wait() catch {
-        printColored(.red, "Unable to wait for child process\n", .{});
+    _ = child.wait(io) catch {
+        printColored(io, &.{.red}, "Unable to wait for child process\n", .{});
         return;
     };
 
@@ -120,11 +125,11 @@ fn checkUpdate(is_checking: *Atomic(bool), allocator: std.mem.Allocator, is_inst
     const is_updated = std.mem.eql(u8, version, current_version);
 
     if (is_updated) {
-        printColored(.magenta, "\r🤗 zio is up to date!    \n", .{});
+        printColored(io, &.{.magenta}, "\r🤗 zio is up to date!    \n", .{});
     } else {
         std.debug.print("\r{s}✨ New update available!   {s}\n", .{
-            Color.ansiCode(.yellow),
-            Color.ansiCode(.reset),
+            ColorV1.ansiCode(.yellow),
+            ColorV1.ansiCode(.reset),
         });
 
         is_installing.load(.seq_cst).installing = true;
@@ -134,7 +139,7 @@ fn checkUpdate(is_checking: *Atomic(bool), allocator: std.mem.Allocator, is_inst
     is_checking.store(false, .release);
 }
 
-fn install(allocator: std.mem.Allocator, installing: *Atomic(*InstallationInfo)) void {
+fn install(allocator: std.mem.Allocator, installing: *Atomic(*InstallationInfo), io: std.Io) void {
     if (!installing.load(.acquire).installing) return;
 
     const cmd = if (builtin.os.tag == .windows)
@@ -142,23 +147,19 @@ fn install(allocator: std.mem.Allocator, installing: *Atomic(*InstallationInfo))
     else
         &.{ "sh", "-c", "curl -sL https://raw.githubusercontent.com/Kingrashy12/zio/main/install.bash | sudo bash" };
 
-    var child = std.process.Child.init(cmd, allocator);
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
-
-    child.spawn() catch |err| {
-        printColored(.red, "Unable to spawn child process:{s}\n", .{@errorName(err)});
+    var child = std.process.spawn(io, .{ .argv = cmd, .stdout = .pipe, .stderr = .pipe }) catch |err| {
+        printColored(io, &.{.red}, "Unable to spawn child process:{s}\n", .{@errorName(err)});
         return;
     };
 
-    _ = child.wait() catch {
-        printColored(.red, "Unable to wait for child process\n", .{});
+    _ = child.wait(io) catch {
+        printColored(io, &.{.red}, "Unable to wait for child process\n", .{});
         return;
     };
 
     installing.load(.seq_cst).installing = false;
 
-    printColored(.green, "\r✓ Update installed '{s}'\n", .{installing.load(.acquire).version});
+    printColored(io, &.{.green}, "\r✓ Update installed '{s}'\n", .{installing.load(.acquire).version});
 
     allocator.free(installing.load(.seq_cst).version);
 }

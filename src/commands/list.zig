@@ -6,11 +6,12 @@ const print = ziglet.utils.terminal.print;
 
 pub fn listCommand(ctx: CommandContext) !void {
     const allocator = ctx.allocator;
+    const io = ctx.init.io;
 
-    var cwd = std.fs.cwd();
+    var cwd = std.Io.Dir.cwd();
 
-    var dir = try cwd.openDir(".", .{ .iterate = true });
-    defer dir.close();
+    var dir = try cwd.openDir(io, ".", .{ .iterate = true });
+    defer dir.close(io);
 
     var it = dir.iterate();
 
@@ -20,7 +21,7 @@ pub fn listCommand(ctx: CommandContext) !void {
     var files: std.ArrayList([]const u8) = .empty;
     defer files.deinit(allocator);
 
-    while (try it.next()) |entry| {
+    while (try it.next(io)) |entry| {
         const startsWithDot = entry.kind == .directory and std.mem.startsWith(u8, entry.name, ".");
 
         if (!startsWithDot and entry.kind == .directory) {
@@ -31,17 +32,17 @@ pub fn listCommand(ctx: CommandContext) !void {
     }
 
     if (dirs.items.len > 0) {
-        print("Directories:\n", .{});
+        print(io, "Directories:\n", .{});
         for (dirs.items) |value| {
-            printColored(.green, "  {s}\n", .{value});
+            printColored(io, &.{.green}, "  {s}\n", .{value});
             defer allocator.free(value);
         }
     }
 
     if (files.items.len > 0) {
-        print("\nFiles:\n", .{});
+        print(io, "\nFiles:\n", .{});
         for (files.items) |value| {
-            printColored(.blue, "  {s}\n", .{value});
+            printColored(io, &.{.blue}, "  {s}\n", .{value});
             defer allocator.free(value);
         }
     }
