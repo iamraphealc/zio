@@ -225,9 +225,9 @@ pub fn statsCommand(ctx: CommandContext) !void {
     const compute_time = ziglet.utils.format.convertNanosecondsToTime(@intCast(compute_timer.untilNow(io, .awake).toNanoseconds()));
     const total_time = ziglet.utils.format.convertNanosecondsToTime(@intCast(timer.untilNow(io, .awake).toNanoseconds()));
 
-    printColored(io, &.{.gray}, "\nDirectory scan completed in {d:.2}ms.\n", .{dir_scan_time.milliseconds});
-    printColored(io, &.{.gray}, "Computation completed in {d:.2}ms.\n", .{compute_time.milliseconds});
-    printColored(io, &.{.gray}, "Total time: {d:.2}ms.\n", .{total_time.milliseconds});
+    printColored(io, &.{.gray}, "\nDirectory scan completed in {d:.2}ms ({d:.2}s)\n", .{ dir_scan_time.milliseconds, dir_scan_time.seconds });
+    printColored(io, &.{.gray}, "Computation completed in {d:.2}ms ({d:.2}s)\n", .{ compute_time.milliseconds, compute_time.seconds });
+    printColored(io, &.{.gray}, "Total time: {d:.2}ms ({d:.2}s)\n", .{ total_time.milliseconds, total_time.seconds });
 }
 
 pub fn walkFiles(

@@ -11,7 +11,7 @@ pub fn main(init: std.process.Init) !void {
 
     const args = try init.minimal.args.toSlice(arena);
 
-    var cli = CLIBuilder.init(allocator, init, "zio", "0.4.0", "A blazing-fast, cross-platform file system utility built in Zig — designed for efficiency, reliability, and simplicity.");
+    var cli = CLIBuilder.init(allocator, init, "zio", "0.4.1", "A blazing-fast, cross-platform file system utility built in Zig — designed for efficiency, reliability, and simplicity.");
     defer cli.deinit();
 
     cli.setGlobalOptions();
