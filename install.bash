@@ -62,15 +62,20 @@ echo "Detected Architecture: **$ARCH**"
 asset_name="${base_asset_name}-${ARCH}-${OS}"
 echo "Target Asset Name: **$asset_name**"
 
-# Fetch Latest Version
-echo "Fetching latest version from GitHub..."
-latest_version=$(curl -s "https://api.github.com/repos/$owner/$repo/releases/latest" \
-    | grep "tag_name" \
-    | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
+# Fetch Version from raw version file
+echo "Fetching version from repository..."
+raw_version=$(curl -sL "https://raw.githubusercontent.com/$owner/$repo/main/version" | tr -d '[:space:]')
 
-if [ -z "$latest_version" ]; then
-    echo "Error: Could not retrieve latest version tag." >&2
+if [ -z "$raw_version" ]; then
+    echo "Error: Could not retrieve version from repository root." >&2
     exit 1
+fi
+
+# Ensure version has 'v' prefix if your GitHub release tags require it
+if [[ "$raw_version" =~ ^[0-9] ]]; then
+    latest_version="v${raw_version}"
+else
+    latest_version="${raw_version}"
 fi
 
 echo "Latest version: **$latest_version**"

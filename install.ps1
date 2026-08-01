@@ -53,8 +53,8 @@ Write-Host "Target Executable Name: **$installName**"
 # Fetch Latest Version
 Write-Host "Fetching latest version from GitHub..." -ForegroundColor Yellow
 try {
-    $latestRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/$owner/$repo/releases/latest"
-    $latestVersion = $latestRelease.tag_name
+    $latestVersion = (Invoke-RestMethod -Uri "https://raw.githubusercontent.com/$owner/$repo/main/version").Trim()
+    Write-Host $latestVersion
     
     if (-not $latestVersion) {
         throw "Could not retrieve latest version tag."
