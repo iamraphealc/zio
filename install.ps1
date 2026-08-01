@@ -1,7 +1,7 @@
 # ZIO Universal Installer for Windows (PowerShell)
 
 # --- Configuration ---
-$owner = "Kingrashy12"
+$owner = "iamraphealc"
 $repo = "zio"
 $baseAssetName = "zio" # Prefix for all assets
 $windowsExt = ".exe"   # Extension for Windows assets

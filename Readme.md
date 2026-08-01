@@ -67,7 +67,7 @@
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/Kingrashy12/zio.git
+git clone https://github.com/iamraphealc/zio.git
 cd zio
 
 # 2. Build the release binary
@@ -80,18 +80,18 @@ sudo cp zig-out/bin/zio /usr/local/bin/
 
 ### Pre-compiled Binaries
 
-Download the latest release for your platform from the [GitHub Releases](https://github.com/Kingrashy12/zio/releases) page.
+Download the latest release for your platform from the [GitHub Releases](https://github.com/iamraphealc/zio/releases) page.
 
 **Windows**
 
 ```bash
-irm https://raw.githubusercontent.com/Kingrashy12/zio/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/iamraphealc/zio/main/install.ps1 | iex
 ```
 
 **Linux/MacOS**
 
 ```bash
-curl -sL https://raw.githubusercontent.com/Kingrashy12/zio/main/install.bash | sudo bash
+curl -sL https://raw.githubusercontent.com/iamraphealc/zio/main/install.bash | sudo bash
 ```
 
 ---
@@ -325,7 +325,7 @@ zio create --help
 ## Getting Help
 
 - **Documentation:** This README and inline help (`zio --help`).
-- **Issues:** Report bugs or request features on [GitHub Issues](https://github.com/Kingrashy12/zio/issues).
+- **Issues:** Report bugs or request features on [GitHub Issues](https://github.com/iamraphealc/zio/issues).
 
 ---
 
@@ -343,7 +343,7 @@ Want to make zio better? Feel free to open issues, suggest features, or submit p
 
 ## Maintainers
 
-- **Kingrashy12** – [GitHub](https://github.com/Kingrashy12)
+- **iamraphealc** – [GitHub](https://github.com/iamraphealc)
 
 ---
 

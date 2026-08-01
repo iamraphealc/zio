@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # --- Configuration ---
-owner="Kingrashy12"
+owner="iamraphealc"
 repo="zio"
 base_asset_name="zio" # Prefix for all assets
 install_name="zio"    # Name of the executable after installation

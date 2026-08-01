@@ -14,7 +14,7 @@ VERSION="${1:-v0.0.1}" # optional CLI arg (e.g. ./release.sh v0.1.0)
 TITLE="$VERSION"
 NOTES=""
 
-REPO="Kingrashy12/zio"
+REPO="iamraphealc/zio"
 
 # -------------------------------
 # 🧱 Build artifacts (optional)

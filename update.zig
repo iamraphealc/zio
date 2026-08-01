@@ -154,7 +154,7 @@
 
 //     const values_to_strip = std.ascii.whitespace ++ "\x1b[0m" ++ "\x1b[37m";
 
-//     var child_process = std.process.Child.init(&.{ "curl", "-sL", "https://raw.githubusercontent.com/Kingrashy12/zio/main/version" }, allocator);
+//     var child_process = std.process.Child.init(&.{ "curl", "-sL", "https://raw.githubusercontent.com/iamraphealc/zio/main/version" }, allocator);
 //     child_process.stdout_behavior = .Pipe;
 
 //     child_process.spawn() catch |err| {

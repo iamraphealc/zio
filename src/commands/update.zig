@@ -62,7 +62,7 @@ fn animate(is_checking: *Atomic(bool), is_installing: *Atomic(*InstallationInfo)
 
 fn checkUpdate(is_checking: *Atomic(bool), allocator: std.mem.Allocator, is_installing: *Atomic(*InstallationInfo), io: std.Io) void {
     var child_process = std.process.spawn(io, .{
-        .argv = &.{ "curl", "-sL", "https://raw.githubusercontent.com/Kingrashy12/zio/main/version" },
+        .argv = &.{ "curl", "-sL", "https://raw.githubusercontent.com/iamraphealc/zio/main/version" },
         .stdout = .pipe,
     }) catch |err| {
         printColored(io, &.{.red}, "Unable to spawn process: {s}\n", .{@errorName(err)});
@@ -143,9 +143,9 @@ fn install(allocator: std.mem.Allocator, installing: *Atomic(*InstallationInfo),
     if (!installing.load(.acquire).installing) return;
 
     const cmd = if (builtin.os.tag == .windows)
-        &.{ "powershell", "-ExecutionPolicy", "Bypass", "-Command", "iwr -useb https://raw.githubusercontent.com/Kingrashy12/zio/main/install.ps1 | iex" }
+        &.{ "powershell", "-ExecutionPolicy", "Bypass", "-Command", "iwr -useb https://raw.githubusercontent.com/iamraphealc/zio/main/install.ps1 | iex" }
     else
-        &.{ "sh", "-c", "curl -sL https://raw.githubusercontent.com/Kingrashy12/zio/main/install.bash | sudo bash" };
+        &.{ "sh", "-c", "curl -sL https://raw.githubusercontent.com/iamraphealc/zio/main/install.bash | sudo bash" };
 
     var child = std.process.spawn(io, .{ .argv = cmd, .stdout = .pipe, .stderr = .pipe }) catch |err| {
         printColored(io, &.{.red}, "Unable to spawn child process:{s}\n", .{@errorName(err)});

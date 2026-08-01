@@ -1,5 +1,5 @@
 # --- Configuration ---
-var owner = "Kingrashy12"
+var owner = "iamraphealc"
 var repo = "zio"
 var base_asset_name = "zio" # Prefix for all assets
 var install_name    # Name of the executable after installation
