@@ -28,7 +28,7 @@ function Get-PlatformInfo {
 }
 
 # --- Main Logic ---
-Write-Host "--- ZIO Universal Installer (PowerShell) ---" -ForegroundColor Cyan
+Write-Host "--- ZIO Windows Installer (PowerShell) ---" -ForegroundColor Cyan
 
 # Get platform info
 $platformInfo = Get-PlatformInfo
